@@ -1,3 +1,5 @@
 .env
 .venv/
 results/
+datasets/
+__pycache__/
