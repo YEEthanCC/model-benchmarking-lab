@@ -58,6 +58,8 @@ class DataLockdownVisualizer:
         self.plot_confidence_vs_accuracy()
         self.plot_radar_summary()
         self.plot_dashboard()
+        # Per-question detailed charts (answers, confidence, latency)
+        self.plot_per_question_details()
         print(f"  Charts ({len(list(self.charts_dir.iterdir()))}) → {self.charts_dir}")
 
     # ------------------------------------------------------------------
@@ -279,3 +281,78 @@ class DataLockdownVisualizer:
         path = self.charts_dir / f"{name}.png"
         fig.savefig(path)
         plt.close(fig)
+
+    # ------------------------------------------------------------------
+    # Per-question visualizations
+    # ------------------------------------------------------------------
+    def plot_per_question_details(self):
+        """Create per-question charts showing each model's answer, confidence,
+        and latency. Saves one PNG per question under `charts/questions/`.
+        """
+        qdir = self.charts_dir / "questions"
+        qdir.mkdir(parents=True, exist_ok=True)
+
+        grouped = self.df.groupby("id")
+        for qid, grp in grouped:
+            try:
+                row = grp.iloc[0]
+                question_text = str(row.get("question", ""))
+                ground_truth = row.get("ground_truth", None)
+
+                models_present = [m for m in self.models if m in grp["model"].values]
+                if not models_present:
+                    continue
+
+                confidences = []
+                latencies = []
+                answers = []
+                correct_flags = []
+                for m in models_present:
+                    mrow = grp[grp["model"] == m]
+                    if mrow.empty:
+                        confidences.append(np.nan)
+                        latencies.append(np.nan)
+                        answers.append("")
+                        correct_flags.append(False)
+                    else:
+                        confidences.append(float(mrow["confidence"].iloc[0]))
+                        latencies.append(float(mrow["latency"].iloc[0]))
+                        ans = mrow["answer"].iloc[0]
+                        answers.append(str(ans))
+                        correct_flags.append(ans == ground_truth)
+
+                x = np.arange(len(models_present))
+
+                fig, ax1 = plt.subplots(figsize=(10, 4))
+
+                # Confidence bars (primary y-axis)
+                colors = [self.colors.get(m, "#999999") for m in models_present]
+                bars = ax1.bar(x, confidences, color=colors, alpha=0.85, width=0.5)
+                ax1.set_ylim(0, 1)
+                ax1.set_ylabel("Confidence")
+                ax1.set_xticks(x)
+                ax1.set_xticklabels(models_present, rotation=25)
+
+                # Annotate chosen answers above confidence bars; green if correct else red
+                for i, (b, ans, corr) in enumerate(zip(bars, answers, correct_flags)):
+                    y = (confidences[i] if not np.isnan(confidences[i]) else 0)
+                    color = "green" if corr else "red"
+                    ax1.text(b.get_x() + b.get_width() / 2, y + 0.06, f"{ans}",
+                             ha="center", va="bottom", fontsize=9, fontweight="bold", color=color)
+
+                # Latency on secondary y-axis (as points + line)
+                ax2 = ax1.twinx()
+                ax2.plot(x, latencies, marker="o", linestyle="-", color="black")
+                ax2.set_ylabel("Latency (s)")
+
+                # Question text as subtitle (trim if long)
+                display_q = question_text if len(question_text) <= 200 else question_text[:197] + "..."
+                ax1.set_title(f"Question {qid}: {display_q}")
+
+                fig.tight_layout()
+                out_path = qdir / f"question_{qid}.png"
+                fig.savefig(out_path)
+                plt.close(fig)
+            except Exception:
+                plt.close("all")
+                continue

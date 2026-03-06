@@ -32,9 +32,10 @@ def main():
     
     if mode == "data-lockdown":
         pipeline = DataLockdownPipeline(client, models, file_path)
-    if mode == "phish-pond":
+    elif mode == "phish-pond":
         pipeline = PhishPondPipeline(client, models, file_path)
-        pipeline.execute()
+
+    pipeline.execute()
 
 
 

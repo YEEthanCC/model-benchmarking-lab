@@ -19,9 +19,11 @@ class PhishPondPreprocessor:
     def process(self):
         phishing_folder_path = Path(f"{self.file_path}/fish")
         real_folder_path = Path(f"{self.file_path}/Real")
-        files = list(phishing_folder_path.glob('*.mp3')) + list(real_folder_path.glob('*.mp3'))
-        df = pd.DataFrame(columns=['transcript', 'details'])
-        for file in files:
+        df = pd.DataFrame(columns=['transcript', 'details', 'ground_truth'])
+        for file in list(phishing_folder_path.glob('*.mp3')):
             result =self.transcriber.transcribe(file)
-            df.loc[len(df)] = [result.text, result.details]
+            df.loc[len(df)] = [result.text, result.details, 'phishing']
+        for file in list(real_folder_path.glob('*.mp3')):
+            result =self.transcriber.transcribe(file)
+            df.loc[len(df)] = [result.text, result.details, 'real']
         return df
