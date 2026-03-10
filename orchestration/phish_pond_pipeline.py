@@ -17,6 +17,7 @@ from tqdm import tqdm
 from agents.azure_agent import AzureAgent, AgentResponse
 from agents.prompts.phish_pond_prompts import SYSTEM_PROMPT, USER_PROMPT
 from preprocessing.phish_pond_preprocessor import PhishPondPreprocessor
+from visualization.phish_pond_visualizer import PhishPondVisualizer
 
 RESULTS_DIR = Path("results")
 ANSWER_MAP = {"A": "option_A", "B": "option_B", "C": "option_C", "D": "option_D"}
@@ -32,7 +33,7 @@ def get_agent_response(row, agent: AzureAgent) -> AgentResponse:
         # response = run_agent_with_retries(agent, USER_PROMPT.format(transcript=transcript), max_retries=5, delay=1.0)
         response = agent.run(USER_PROMPT.format(transcript=transcript))
         response.latency = detail.end_ms / 1000
-        if response.answer == ground_truth:
+        if response.answer != "none" and response.answer != "undetermined":
             break
     return response
 
@@ -106,9 +107,9 @@ class PhishPondPipeline:
         run_dir = self._save_results(results_df)
 
     #     # Generate visualizations
-    #     self._generate_visualizations(results_df, run_dir)
+        self._generate_visualizations(results_df, run_dir)
 
-    #     print(f"\nResults and charts saved to {run_dir}")
+        print(f"\nResults and charts saved to {run_dir}")
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -125,6 +126,7 @@ class PhishPondPipeline:
             is_correct = resp.answer == row["ground_truth"]
             records.append(
                 {
+                    "id": row["id"],
                     "question": row["transcript"],
                     "ground_truth": row["ground_truth"],
                     "model": model_name,
@@ -191,9 +193,9 @@ class PhishPondPipeline:
             summary["models"][model] = model_summary
         return summary
 
-    # @staticmethod
-    # def _generate_visualizations(results_df: pd.DataFrame, run_dir: Path):
-    #     """Create all comparative charts and save into the run directory."""
-    #     viz = DataLockdownVisualizer(results_df, run_dir)
-    #     viz.generate_all()
+    @staticmethod
+    def _generate_visualizations(results_df: pd.DataFrame, run_dir: Path):
+        """Create all comparative charts and save into the run directory."""
+        viz = PhishPondVisualizer(results_df, run_dir)
+        viz.generate_all()
 

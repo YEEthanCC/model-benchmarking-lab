@@ -82,7 +82,7 @@ class AzureAgent:
                 latency=latency
             )
             
-        except (json.JSONDecodeError, KeyError, ValueError) as e:
+        except Exception as e:
             # print(f"Warning: Failed to parse agent's response: {e}")
             return AgentResponse(
                 answer="none", 

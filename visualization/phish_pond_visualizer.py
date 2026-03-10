@@ -33,7 +33,7 @@ PALETTE = [
 ]
 
 
-class DataLockdownVisualizer:
+class PhishPondVisualizer:
     """Creates and saves all benchmark comparison charts."""
 
     def __init__(self, results_df: pd.DataFrame, output_dir: Path):
@@ -50,18 +50,17 @@ class DataLockdownVisualizer:
     def generate_all(self):
         """Generate the full chart suite."""
         self.plot_overall_accuracy()
-        self.plot_accuracy_by_domain()
-        self.plot_accuracy_by_difficulty()
-        self.plot_accuracy_by_regulation()
+        # self.plot_accuracy_by_domain()
+        # self.plot_accuracy_by_difficulty()
+        # self.plot_accuracy_by_regulation()
         self.plot_confidence_distribution()
         self.plot_latency_distribution()
         self.plot_confidence_vs_accuracy()
         self.plot_radar_summary()
-        self.plot_dashboard()
+        # self.plot_dashboard()
         self.plot_per_question_answers()
         self.plot_per_question_latency()
         self.plot_per_question_confidence()
-        self.plot_per_question_scatter()
         print(f"  Charts ({len(list(self.charts_dir.iterdir()))}) → {self.charts_dir}")
 
     # ------------------------------------------------------------------
@@ -181,10 +180,6 @@ class DataLockdownVisualizer:
                 "Avg Confidence": mdf["confidence"].mean(),
                 "Speed (1/latency)": 1 / max(mdf["latency"].mean(), 0.01),
             }
-            # Add per-domain accuracy as extra spokes
-            for domain in sorted(self.df["domain"].unique()):
-                ddf = mdf[mdf["domain"] == domain]
-                metrics[model][f"{domain} Acc"] = ddf["is_correct"].mean() if len(ddf) else 0
 
         labels = list(next(iter(metrics.values())).keys())
         n = len(labels)
@@ -426,61 +421,6 @@ class DataLockdownVisualizer:
             ax.legend(fontsize=8)
             fig.tight_layout()
             self._save(fig, f"questions/confidence_{page_start + 1}_{page_end}")
-
-    # ------------------------------------------------------------------
-    # 13. Per-question scatter: latency (x) vs confidence (y)
-    # ------------------------------------------------------------------
-    def plot_per_question_scatter(self):
-        """One scatter plot per question: x = latency, y = confidence.
-
-        Each model is a labelled point coloured green (correct) or red
-        (incorrect), with the chosen answer letter shown next to the marker.
-        """
-        scatter_dir = self.charts_dir / "questions" / "scatter"
-        scatter_dir.mkdir(parents=True, exist_ok=True)
-
-        for qid, grp in self.df.groupby("id"):
-            question_text = str(grp["question"].iloc[0])
-            display_q = question_text if len(question_text) <= 120 else question_text[:117] + "..."
-            ground_truth = grp["ground_truth"].iloc[0]
-
-            fig, ax = plt.subplots(figsize=(8, 5))
-
-            for _, row in grp.iterrows():
-                model = row["model"]
-                correct = bool(row["is_correct"])
-                color = "#2ecc71" if correct else "#e74c3c"
-                marker = "o" if correct else "X"
-                ax.scatter(
-                    row["latency"], row["confidence"],
-                    color=color, marker=marker, s=120, edgecolors="black",
-                    linewidths=0.6, zorder=3,
-                )
-                # Label: "ModelName (A)" next to the point
-                ax.annotate(
-                    f"{model} ({row['answer']})",
-                    (row["latency"], row["confidence"]),
-                    textcoords="offset points", xytext=(8, 4),
-                    fontsize=8, color=color, fontweight="bold",
-                )
-
-            ax.set_xlabel("Latency (s)")
-            ax.set_ylabel("Confidence")
-            ax.set_ylim(0, 1.1)
-            ax.set_title(f"Q{qid}: {display_q}\n(Ground Truth: {ground_truth})", fontsize=10)
-
-            # Legend
-            from matplotlib.lines import Line2D
-            legend_handles = [
-                Line2D([0], [0], marker="o", color="w", markerfacecolor="#2ecc71",
-                       markeredgecolor="black", markersize=9, label="Correct"),
-                Line2D([0], [0], marker="X", color="w", markerfacecolor="#e74c3c",
-                       markeredgecolor="black", markersize=9, label="Incorrect"),
-            ]
-            ax.legend(handles=legend_handles, loc="best", fontsize=8)
-
-            fig.tight_layout()
-            self._save(fig, f"questions/scatter/question_{qid}")
 
     # ------------------------------------------------------------------
     # Shared helpers
