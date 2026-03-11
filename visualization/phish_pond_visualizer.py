@@ -412,11 +412,12 @@ class PhishPondVisualizer:
         heatmap_dir.mkdir(parents=True, exist_ok=True)
 
         for qid, grp in self.df.groupby("id"):
-            question_text = str(grp["question"].iloc[0])
-            display_q = (
-                question_text if len(question_text) <= 120
-                else question_text[:117] + "..."
-            )
+            # question_text = str(grp["question"].iloc[0])
+            # display_q = (
+            #     question_text if len(question_text) <= 120
+            #     else question_text[:117] + "..."
+            # )
+            display_q = "Models' Performance"
             ground_truth = grp["ground_truth"].iloc[0]
 
             models_present = [m for m in self.models if m in grp["model"].values]
