@@ -8,8 +8,8 @@ from visualization.phish_pond_visualizer import PhishPondVisualizer
 import pandas as pd
 
 def main():
-        df = pd.read_csv('results/phish_pond_20260309_121549/detailed_results.csv')
-        viz = PhishPondVisualizer(df, Path('results/phish_pond_20260309_121549'))
+        df = pd.read_csv('results/phish_pond_20260310_121717/detailed_results.csv')
+        viz = PhishPondVisualizer(df, Path('results/phish_pond_20260310_121717'))
         # viz.plot_overall_accuracy()
         viz.generate_all()
 

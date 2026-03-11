@@ -1,7 +1,7 @@
 from typing import List, Dict
 import pandas as pd
 
-class DataLockdownPreprocessor:
+class CyberQuizPreprocessor:
     def __init__(
         self, 
         file_path

@@ -6,10 +6,12 @@ performance across accuracy, confidence, latency, domain, difficulty, and
 calibration dimensions.
 """
 
+import warnings
 from pathlib import Path
 
 import matplotlib
 matplotlib.use("Agg")  # non-interactive backend for headless environments
+warnings.filterwarnings("ignore", category=UserWarning, module="matplotlib")
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -61,6 +63,7 @@ class PhishPondVisualizer:
         self.plot_per_question_answers()
         self.plot_per_question_latency()
         self.plot_per_question_confidence()
+        self.plot_per_question_heatmap()
         print(f"  Charts ({len(list(self.charts_dir.iterdir()))}) → {self.charts_dir}")
 
     # ------------------------------------------------------------------
@@ -248,183 +251,260 @@ class PhishPondVisualizer:
         self._save(fig, "dashboard")
 
     # ------------------------------------------------------------------
-    # 10. Per-question answer comparison (heatmap)
+    # 10. Per-question answer distribution (one chart per question)
     # ------------------------------------------------------------------
     def plot_per_question_answers(self):
-        """Heatmap showing each model's answer vs ground truth per question.
+        """Bar chart per question showing how many models chose each answer.
 
-        Cells are coloured green (correct) / red (incorrect).  The cell text
-        shows the model's chosen answer letter so reviewers can spot
-        systematic mis-answers at a glance.
+        The correct-answer bar is green; others are grey.  Model names that
+        picked each option are listed above the corresponding bar.
         """
-        questions_dir = self.charts_dir / "questions"
-        questions_dir.mkdir(parents=True, exist_ok=True)
+        answer_dir = self.charts_dir / "questions" / "answers"
+        answer_dir.mkdir(parents=True, exist_ok=True)
 
-        qids = sorted(self.df["id"].unique())
+        for qid, grp in self.df.groupby("id"):
+            ground_truth = grp["ground_truth"].iloc[0]
+            question_text = str(grp["question"].iloc[0])
+            display_q = question_text if len(question_text) <= 120 else question_text[:117] + "..."
 
-        # Build a matrix: rows = questions, cols = models
-        answer_matrix = []
-        correct_matrix = []
-        gt_list = []
-        for qid in qids:
-            qdf = self.df[self.df["id"] == qid]
-            gt = qdf["ground_truth"].iloc[0]
-            gt_list.append(gt)
-            row_ans = []
-            row_cor = []
-            for model in self.models:
-                mq = qdf[qdf["model"] == model]
-                if mq.empty:
-                    row_ans.append("")
-                    row_cor.append(np.nan)
-                else:
-                    row_ans.append(mq["answer"].iloc[0])
-                    row_cor.append(1 if mq["is_correct"].iloc[0] else 0)
-            answer_matrix.append(row_ans)
-            correct_matrix.append(row_cor)
+            # Collect which models chose which answer
+            option_models: dict[str, list[str]] = {"phishing": [], "real": []}
+            for _, row in grp.iterrows():
+                ans = str(row["answer"])
+                option_models.setdefault(ans, []).append(row["model"])
 
-        correct_arr = np.array(correct_matrix, dtype=float)
+            options = ["phishing", "real"]
+            counts = [len(option_models.get(o, [])) for o in options]
+            bar_colors = ["#2ecc71" if o == str(ground_truth) else "#95a5a6" for o in options]
 
-        # Paginate into chunks so individual charts stay readable
-        page_size = 30
-        for page_start in range(0, len(qids), page_size):
-            page_end = min(page_start + page_size, len(qids))
-            page_qids = qids[page_start:page_end]
-            page_correct = correct_arr[page_start:page_end]
-            page_answers = answer_matrix[page_start:page_end]
-            page_gt = gt_list[page_start:page_end]
+            fig, ax = plt.subplots(figsize=(max(6, len(options) * 2), 5))
+            x = np.arange(len(options))
+            bars = ax.bar(x, counts, color=bar_colors, edgecolor="black", linewidth=0.5)
 
-            n_rows = len(page_qids)
-            fig_height = max(4, n_rows * 0.45 + 2)
-            fig, ax = plt.subplots(figsize=(max(7, len(self.models) * 2 + 2), fig_height))
+            # Annotate model names above each bar
+            for i, (bar, opt) in enumerate(zip(bars, options)):
+                models_text = "\n".join(option_models[opt])
+                ax.text(
+                    bar.get_x() + bar.get_width() / 2,
+                    bar.get_height() + 0.15,
+                    models_text,
+                    ha="center", va="bottom", fontsize=7, fontweight="bold",
+                )
 
-            # Custom colourmap: red (0) → green (1)
-            from matplotlib.colors import ListedColormap
-            cmap = ListedColormap(["#e74c3c", "#2ecc71"])
+            ax.set_xticks(x)
+            ax.set_xticklabels(options, fontsize=9)
+            ax.set_ylabel("Number of Models")
+            ax.yaxis.set_major_locator(plt.MaxNLocator(integer=True))
+            ax.set_ylim(0, max(counts) + max(1, len(self.models) * 0.35))
+            ax.set_title(
+                f"Q{qid}: {display_q}\n(Ground Truth: {ground_truth})",
+                fontsize=10,
+            )
 
-            ax.imshow(page_correct, aspect="auto", cmap=cmap, vmin=0, vmax=1)
-
-            # Annotate each cell with the answer letter
-            for i in range(n_rows):
-                for j in range(len(self.models)):
-                    ax.text(j, i, page_answers[i][j],
-                            ha="center", va="center", fontsize=8, fontweight="bold",
-                            color="white")
-
-            # Axis labels
-            ylabels = [f"Q{qid} (GT:{gt})" for qid, gt in zip(page_qids, page_gt)]
-            ax.set_yticks(range(n_rows))
-            ax.set_yticklabels(ylabels, fontsize=8)
-            ax.set_xticks(range(len(self.models)))
-            ax.set_xticklabels(self.models, fontsize=9, rotation=20, ha="right")
-            ax.set_title(f"Per-Question Answers  (Q {page_start + 1}–{page_end})", fontsize=12, fontweight="bold")
-
-            # Legend patches
             from matplotlib.patches import Patch
-            legend_items = [Patch(facecolor="#2ecc71", label="Correct"),
-                            Patch(facecolor="#e74c3c", label="Incorrect")]
-            ax.legend(handles=legend_items, loc="upper right", bbox_to_anchor=(1.18, 1.02))
+            legend_items = [
+                Patch(facecolor="#2ecc71", edgecolor="black", label="Correct option"),
+                Patch(facecolor="#95a5a6", edgecolor="black", label="Incorrect option"),
+            ]
+            ax.legend(handles=legend_items, loc="best", fontsize=8)
 
             fig.tight_layout()
-            self._save(fig, f"questions/answer_heatmap_{page_start + 1}_{page_end}")
+            self._save(fig, f"questions/answers/question_{qid}")
 
     # ------------------------------------------------------------------
-    # 11. Per-question latency comparison (grouped bar)
+    # 11. Per-question latency comparison (one chart per question)
     # ------------------------------------------------------------------
     def plot_per_question_latency(self):
-        """Grouped bar chart of each model's response latency per question."""
-        questions_dir = self.charts_dir / "questions"
-        questions_dir.mkdir(parents=True, exist_ok=True)
+        """Bar chart per question showing each model's response latency."""
+        latency_dir = self.charts_dir / "questions" / "latency"
+        latency_dir.mkdir(parents=True, exist_ok=True)
 
-        qids = sorted(self.df["id"].unique())
+        for qid, grp in self.df.groupby("id"):
+            question_text = str(grp["question"].iloc[0])
+            display_q = question_text if len(question_text) <= 120 else question_text[:117] + "..."
 
-        page_size = 30
-        for page_start in range(0, len(qids), page_size):
-            page_end = min(page_start + page_size, len(qids))
-            page_qids = qids[page_start:page_end]
-            n_q = len(page_qids)
+            models_present = [m for m in self.models if m in grp["model"].values]
+            if not models_present:
+                continue
 
-            fig_width = max(10, n_q * 0.6 + 3)
-            fig, ax = plt.subplots(figsize=(fig_width, 5))
+            latencies = []
+            for m in models_present:
+                mrow = grp[grp["model"] == m]
+                latencies.append(float(mrow["latency"].iloc[0]) if not mrow.empty else 0)
 
-            x = np.arange(n_q)
-            n_models = len(self.models)
-            width = 0.8 / n_models
+            fig, ax = plt.subplots(figsize=(max(6, len(models_present) * 1.8), 4))
+            x = np.arange(len(models_present))
+            colors = [self.colors.get(m, "#999999") for m in models_present]
+            bars = ax.bar(x, latencies, color=colors, edgecolor="black", linewidth=0.5, width=0.5)
 
-            for i, model in enumerate(self.models):
-                latencies = []
-                for qid in page_qids:
-                    mq = self.df[(self.df["id"] == qid) & (self.df["model"] == model)]
-                    latencies.append(mq["latency"].iloc[0] if not mq.empty else 0)
-                offset = (i - n_models / 2 + 0.5) * width
-                ax.bar(x + offset, latencies, width, label=model, color=self.colors[model])
+            for bar, val in zip(bars, latencies):
+                ax.text(bar.get_x() + bar.get_width() / 2, val + 0.05,
+                        f"{val:.2f}s", ha="center", va="bottom", fontsize=8, fontweight="bold")
 
             ax.set_xticks(x)
-            ax.set_xticklabels([f"Q{q}" for q in page_qids], fontsize=7, rotation=45, ha="right")
+            ax.set_xticklabels(models_present, fontsize=9, rotation=20)
             ax.set_ylabel("Latency (s)")
-            ax.set_title(f"Per-Question Latency  (Q {page_start + 1}–{page_end})", fontsize=12, fontweight="bold")
-            ax.legend(fontsize=8)
+            ax.set_title(f"Q{qid}: {display_q}", fontsize=10)
             fig.tight_layout()
-            self._save(fig, f"questions/latency_{page_start + 1}_{page_end}")
+            self._save(fig, f"questions/latency/question_{qid}")
 
     # ------------------------------------------------------------------
-    # 12. Per-question confidence score comparison (grouped bar)
+    # 12. Per-question confidence score comparison (one chart per question)
     # ------------------------------------------------------------------
     def plot_per_question_confidence(self):
-        """Grouped bar chart of each model's confidence score per question,
-        with markers indicating whether the answer was correct."""
-        questions_dir = self.charts_dir / "questions"
-        questions_dir.mkdir(parents=True, exist_ok=True)
+        """Bar chart per question showing each model's confidence score,
+        with correctness markers above each bar."""
+        conf_dir = self.charts_dir / "questions" / "confidence"
+        conf_dir.mkdir(parents=True, exist_ok=True)
 
-        qids = sorted(self.df["id"].unique())
+        for qid, grp in self.df.groupby("id"):
+            question_text = str(grp["question"].iloc[0])
+            display_q = question_text if len(question_text) <= 120 else question_text[:117] + "..."
 
-        page_size = 30
-        for page_start in range(0, len(qids), page_size):
-            page_end = min(page_start + page_size, len(qids))
-            page_qids = qids[page_start:page_end]
-            n_q = len(page_qids)
+            models_present = [m for m in self.models if m in grp["model"].values]
+            if not models_present:
+                continue
 
-            fig_width = max(10, n_q * 0.6 + 3)
-            fig, ax = plt.subplots(figsize=(fig_width, 5))
+            confidences = []
+            correctness = []
+            for m in models_present:
+                mrow = grp[grp["model"] == m]
+                if not mrow.empty:
+                    confidences.append(float(mrow["confidence"].iloc[0]))
+                    correctness.append(bool(mrow["is_correct"].iloc[0]))
+                else:
+                    confidences.append(0)
+                    correctness.append(False)
 
-            x = np.arange(n_q)
-            n_models = len(self.models)
-            width = 0.8 / n_models
+            fig, ax = plt.subplots(figsize=(max(6, len(models_present) * 1.8), 4))
+            x = np.arange(len(models_present))
+            colors = [self.colors.get(m, "#999999") for m in models_present]
+            bars = ax.bar(x, confidences, color=colors, edgecolor="black",
+                          linewidth=0.5, width=0.5, alpha=0.85)
 
-            for i, model in enumerate(self.models):
-                confidences = []
-                correctness = []
-                for qid in page_qids:
-                    mq = self.df[(self.df["id"] == qid) & (self.df["model"] == model)]
-                    if not mq.empty:
-                        confidences.append(mq["confidence"].iloc[0])
-                        correctness.append(mq["is_correct"].iloc[0])
-                    else:
-                        confidences.append(0)
-                        correctness.append(False)
-                offset = (i - n_models / 2 + 0.5) * width
-                bars = ax.bar(x + offset, confidences, width, label=model,
-                              color=self.colors[model], alpha=0.85)
-                # Place a small marker on top: ✓ for correct, ✗ for wrong
-                for bar, conf, correct in zip(bars, confidences, correctness):
-                    marker = "✓" if correct else "✗"
-                    colour = "#2ecc71" if correct else "#e74c3c"
-                    ax.text(bar.get_x() + bar.get_width() / 2, conf + 0.02,
-                            marker, ha="center", va="bottom", fontsize=7,
-                            fontweight="bold", color=colour)
+            for bar, conf, correct in zip(bars, confidences, correctness):
+                marker = "✓" if correct else "✗"
+                colour = "#2ecc71" if correct else "#e74c3c"
+                ax.text(bar.get_x() + bar.get_width() / 2, conf + 0.03,
+                        marker, ha="center", va="bottom", fontsize=11,
+                        fontweight="bold", color=colour)
 
             ax.set_xticks(x)
-            ax.set_xticklabels([f"Q{q}" for q in page_qids], fontsize=7, rotation=45, ha="right")
+            ax.set_xticklabels(models_present, fontsize=9, rotation=20)
             ax.set_ylabel("Confidence Score")
             ax.set_ylim(0, 1.15)
-            ax.set_title(f"Per-Question Confidence  (Q {page_start + 1}–{page_end})", fontsize=12, fontweight="bold")
-            ax.legend(fontsize=8)
+            ax.set_title(f"Q{qid}: {display_q}", fontsize=10)
             fig.tight_layout()
-            self._save(fig, f"questions/confidence_{page_start + 1}_{page_end}")
+            self._save(fig, f"questions/confidence/question_{qid}")
+
+    # ------------------------------------------------------------------
+    # 13. Per-question heatmap (answer / confidence / latency)
+    # ------------------------------------------------------------------
+    def plot_per_question_heatmap(self):
+        """One heatmap per question.  Columns: Answer, Confidence, Latency.
+        Rows: models.  Cell colours encode correctness / performance.
+
+        * Answer   – green if correct, red if wrong.
+        * Confidence – green (≥0.6) / red (<0.6), darker at the extremes.
+        * Latency  – same colour logic applied to  1 / latency  (clamped to [0,1]).
+        """
+        heatmap_dir = self.charts_dir / "questions" / "heatmaps"
+        heatmap_dir.mkdir(parents=True, exist_ok=True)
+
+        for qid, grp in self.df.groupby("id"):
+            question_text = str(grp["question"].iloc[0])
+            display_q = (
+                question_text if len(question_text) <= 120
+                else question_text[:117] + "..."
+            )
+            ground_truth = grp["ground_truth"].iloc[0]
+
+            models_present = [m for m in self.models if m in grp["model"].values]
+            if not models_present:
+                continue
+
+            n_models = len(models_present)
+            cols = ["Answer", "Confidence", "Latency"]
+
+            cell_colors: list[list[str]] = []
+            cell_texts: list[list[str]] = []
+
+            for m in models_present:
+                mrow = grp[grp["model"] == m].iloc[0]
+                answer = str(mrow["answer"])
+                correct = bool(mrow["is_correct"])
+                confidence = float(mrow["confidence"])
+                latency = float(mrow["latency"])
+                speed = min(1.0, 1.0 / max(latency, 0.01))
+
+                ans_color = "#2ecc71" if correct else "#e74c3c"
+                conf_color = self._metric_color(confidence)
+                lat_color = self._metric_color(speed)
+
+                cell_colors.append([ans_color, conf_color, lat_color])
+                cell_texts.append([answer, f"{confidence:.2f}", f"{latency:.2f}s"])
+
+            fig_height = max(2.5, n_models * 0.7 + 1.5)
+            fig, ax = plt.subplots(figsize=(7, fig_height))
+            ax.set_xlim(0, 3)
+            ax.set_ylim(n_models, -1)
+            ax.axis("off")
+
+            # Header row
+            for j, col in enumerate(cols):
+                ax.add_patch(plt.Rectangle(
+                    (j, -1), 1, 1, facecolor="#2c3e50",
+                    edgecolor="white", lw=1.5,
+                ))
+                ax.text(j + 0.5, -0.5, col, ha="center", va="center",
+                        fontsize=10, fontweight="bold", color="white")
+
+            # Data cells
+            for i in range(n_models):
+                for j in range(3):
+                    ax.add_patch(plt.Rectangle(
+                        (j, i), 1, 1, facecolor=cell_colors[i][j],
+                        edgecolor="white", lw=1.5,
+                    ))
+                    ax.text(j + 0.5, i + 0.5, cell_texts[i][j],
+                            ha="center", va="center", fontsize=9,
+                            fontweight="bold", color="white")
+
+            # Model labels on the left
+            for i, model in enumerate(models_present):
+                ax.text(-0.08, i + 0.5, model, ha="right", va="center",
+                        fontsize=9)
+
+            ax.set_title(
+                f"Q{qid}: {display_q}\n(Ground Truth: {ground_truth})",
+                fontsize=10, pad=12,
+            )
+            fig.tight_layout()
+            self._save(fig, f"questions/heatmaps/question_{qid}")
 
     # ------------------------------------------------------------------
     # Shared helpers
     # ------------------------------------------------------------------
+    @staticmethod
+    def _metric_color(value: float) -> str:
+        """Map a 0–1 metric value to a colour.
+
+        ≥ 0.6 → green (darker as value → 1.0)
+        < 0.6 → red   (darker as value → 0.0)
+        """
+        value = max(0.0, min(1.0, value))
+        if value >= 0.6:
+            t = (value - 0.6) / 0.4            # light green (#90ee90) → dark green (#1b7a20)
+            r = int(0x90 - (0x90 - 0x1B) * t)
+            g = int(0xEE - (0xEE - 0x7A) * t)
+            b = int(0x90 - (0x90 - 0x20) * t)
+        else:
+            t = (0.6 - value) / 0.6            # light red (#ffcdcd) → dark red (#b71c1c)
+            r = int(0xFF - (0xFF - 0xB7) * t)
+            g = int(0xCD - (0xCD - 0x1C) * t)
+            b = int(0xCD - (0xCD - 0x1C) * t)
+        return f"#{r:02x}{g:02x}{b:02x}"
+
     def _grouped_bar(self, ax, pivot, title, ylabel, show_legend=True):
         """Draw a grouped bar chart from a pivoted (categories × models) DataFrame."""
         categories = pivot.index.tolist()
