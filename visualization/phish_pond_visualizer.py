@@ -431,15 +431,15 @@ class PhishPondVisualizer:
 
             for m in models_present:
                 mrow = grp[grp["model"] == m].iloc[0]
-                answer = str(mrow["answer"])
                 correct = bool(mrow["is_correct"])
+                answer = "Correct" if correct else "Incorrect"
                 confidence = float(mrow["confidence"])
                 latency = float(mrow["latency"])
-                speed = min(1.0, 1.0 / max(latency, 0.01))
+                speed = min(1.0, latency / 40)
 
                 ans_color = "#2ecc71" if correct else "#e74c3c"
-                conf_color = self._metric_color(confidence)
-                lat_color = self._metric_color(speed)
+                conf_color = self._metric_confidence_color(confidence)
+                lat_color = self._metric_latency_color(speed)
 
                 cell_colors.append([ans_color, conf_color, lat_color])
                 cell_texts.append([answer, f"{confidence:.2f}", f"{latency:.2f}s"])
@@ -472,7 +472,7 @@ class PhishPondVisualizer:
 
             # Model labels on the left
             for i, model in enumerate(models_present):
-                ax.text(-0.08, i + 0.5, model, ha="right", va="center",
+                ax.text(-0.08, i + 0.5, model.split('-')[0].upper(), ha="right", va="center",
                         fontsize=9)
 
             ax.set_title(
@@ -486,23 +486,48 @@ class PhishPondVisualizer:
     # Shared helpers
     # ------------------------------------------------------------------
     @staticmethod
-    def _metric_color(value: float) -> str:
+    def _metric_confidence_color(value: float) -> str:
         """Map a 0–1 metric value to a colour.
 
-        ≥ 0.6 → green (darker as value → 1.0)
-        < 0.6 → red   (darker as value → 0.0)
+        ≥ 0.6 → green (lighter near 0.6, much darker toward 1.0)
+        < 0.6 → red   (lighter near 0.6, much darker toward 0.0)
         """
         value = max(0.0, min(1.0, value))
-        if value >= 0.6:
-            t = (value - 0.6) / 0.4            # light green (#90ee90) → dark green (#1b7a20)
-            r = int(0x90 - (0x90 - 0x1B) * t)
-            g = int(0xEE - (0xEE - 0x7A) * t)
-            b = int(0x90 - (0x90 - 0x20) * t)
+        if value >= 0.7:
+            # colour = "#2ecc71" if correct else "#e74c3c"
+            t = (1 - value) / 0.3         # pale green (#e8fce8) → deep green (#033603)
+            r = int(0x2E - (0x2E - 0x03) * t)
+            g = int(0xCC - (0xCC - 0x36) * t)
+            b = int(0x71 - (0x71 - 0x03) * t)
         else:
-            t = (0.6 - value) / 0.6            # light red (#ffcdcd) → dark red (#b71c1c)
-            r = int(0xFF - (0xFF - 0xB7) * t)
-            g = int(0xCD - (0xCD - 0x1C) * t)
-            b = int(0xCD - (0xCD - 0x1C) * t)
+            t = (0.7 - value) / 0.7 # pale red (#fce8e8) → deep red (#500303)
+            r = int(0xE7 - (0xE7 - 0x50) * t)
+            g = int(0x4C - (0x4C - 0x03) * t)
+            b = int(0x3C - (0x3C - 0x03) * t)
+        return f"#{r:02x}{g:02x}{b:02x}"
+    
+        # ------------------------------------------------------------------
+    # Shared helpers
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _metric_latency_color(value: float) -> str:
+        """Map a 0–1 metric value to a colour.
+
+        ≥ 0.6 → green (lighter near 0.6, much darker toward 1.0)
+        < 0.6 → red   (lighter near 0.6, much darker toward 0.0)
+        """
+        value = max(0.0, min(1.0, value))
+        if value <= 0.3:
+            # colour = "#2ecc71" if correct else "#e74c3c"
+            t = value / 0.3             # pale green (#e8fce8) → deep green (#033603)
+            r = int(0x2E - (0x2E - 0x03) * t)
+            g = int(0xCC - (0xCC - 0x36) * t)
+            b = int(0x71 - (0x71 - 0x03) * t)
+        else:
+            t = (value - 0.3 )  / 0.7       # pale red (#fce8e8) → deep red (#500303)
+            r = int(0xE7 - (0xE7 - 0x50) * t)
+            g = int(0x4C - (0x4C - 0x03) * t)
+            b = int(0x3C - (0x3C - 0x03) * t)
         return f"#{r:02x}{g:02x}{b:02x}"
 
     def _grouped_bar(self, ax, pivot, title, ylabel, show_legend=True):
