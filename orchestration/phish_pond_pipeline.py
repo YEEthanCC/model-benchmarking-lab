@@ -26,7 +26,6 @@ ANSWER_MAP = {"A": "option_A", "B": "option_B", "C": "option_C", "D": "option_D"
 def get_agent_response(row, agent: AzureAgent) -> AgentResponse:
     response: AgentResponse
     details = row["details"]
-    ground_truth = row["ground_truth"]
     transcript = ""
     for detail in details:
         transcript+=f"{detail.word} "
@@ -36,6 +35,9 @@ def get_agent_response(row, agent: AzureAgent) -> AgentResponse:
         if response.answer != "none" and response.answer != "undetermined":
             break
     return response
+
+# def get_timed_agent_response(row, agent: AzureAgent) -> AgentResponse:
+#     for detail in row["details"]:
 
 
 # def run_agent_with_retries(agent: AzureAgent, message: str, max_retries: int = 5, delay: float = 1.0) -> AgentResponse:
