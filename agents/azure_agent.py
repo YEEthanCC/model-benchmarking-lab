@@ -61,7 +61,7 @@ class AzureAgent:
                 raise ValueError(error_msg)
             
             agent_response = assistant_messages[-1].content[0].text.value
-        
+            print(agent_response)
             # Parse JSON response
             response_text = agent_response.strip()
             if "```json" in response_text:

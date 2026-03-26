@@ -10,6 +10,7 @@ import asyncio
 from orchestration.data_lockdown_pipelines import DataLockdownPipeline
 from orchestration.phish_pond_pipeline import PhishPondPipeline
 from orchestration.cyber_quiz_pipelines import CyberQuizPipeline
+from orchestration.vishing_pipelines import VishingPipeline
 from core.azure_client import  get_azure_client
 
 
@@ -26,7 +27,7 @@ def main():
 
     if not os.path.exists(file_path):
         raise Exception("Invalid file path")
-    if not mode in ["data-lockdown", "phish-pond", "cyber-quiz"]:
+    if not mode in ["data-lockdown", "phish-pond", "cyber-quiz", "vishing"]:
         raise Exception("Unsupported mode")
     
     client = get_azure_client()
@@ -37,7 +38,8 @@ def main():
         pipeline = PhishPondPipeline(client, models, file_path)
     elif mode == "cyber-quiz":
         pipeline = CyberQuizPipeline(client, models, file_path)
-
+    elif mode == "vishing":
+        pipeline = VishingPipeline(client, models, file_path)
     pipeline.execute()
 
 

@@ -361,7 +361,7 @@ class PhishPondVisualizer:
         y_upper = max(1, max_models_per_question) + 1
 
         for qid, grp in self.df.groupby("id"):
-            title = f"AI Answer Distribution By Resoponse Time"
+            title = f"AI Answer Distribution By Response Time"
             df = grp.copy()
             df['bin'] = pd.cut(
                 df['latency'],
@@ -381,10 +381,18 @@ class PhishPondVisualizer:
                 if a not in pivot.columns:
                     pivot[a] = 0
 
+            # models_by_bin = (
+            #     df.groupby('bin', observed=True)['model']
+            #     .apply(lambda s: ", ".join(str(m).split('-')[0].upper() for m in s.tolist()))
+            #     .reindex(global_bins, fill_value="")
+            # )
             models_by_bin = (
-                df.groupby('bin', observed=True)['model']
-                .apply(lambda s: ", ".join(str(m).split('-')[0].upper() for m in s.tolist()))
-                .reindex(global_bins, fill_value="")
+                df.groupby('bin', observed=True).apply(
+                    lambda group: "\n".join(
+                        f"{str(row['model']).split('-')[0].upper()} ({row['confidence']:.2f})"
+                        for _, row in group.iterrows()
+                    )
+                ).reindex(global_bins, fill_value="")
             )
 
             x = np.arange(len(custom_bin_labels))
@@ -432,16 +440,20 @@ class PhishPondVisualizer:
 
             # Update the legend labels using the mapping
             mapped_labels = [value_to_label.get(answer, answer) for answer in answers]
-            if df["ground_truth"].iloc[0] == 'phishing':
-                legend_items = [
-                    Patch(facecolor="#2ecc71", edgecolor="black", label="Scam"),
-                    Patch(facecolor="#e74c3c", edgecolor="black", label="Legitimate"),
-                ]
-            else:
-                legend_items = [
-                    Patch(facecolor="#2ecc71", edgecolor="black", label="Legitimate"),
-                    Patch(facecolor="#e74c3c", edgecolor="black", label="Scam"),
-                ]
+            # if df["ground_truth"].iloc[0] == 'phishing':
+            #     legend_items = [
+            #         Patch(facecolor="#2ecc71", edgecolor="black", label="Scam"),
+            #         Patch(facecolor="#e74c3c", edgecolor="black", label="Legitimate"),
+            #     ]
+            # else:
+            #     legend_items = [
+            #         Patch(facecolor="#2ecc71", edgecolor="black", label="Legitimate"),
+            #         Patch(facecolor="#e74c3c", edgecolor="black", label="Scam"),
+            #     ]
+            legend_items = [
+                Patch(facecolor="#2ecc71", edgecolor="black", label="Correct"),
+                Patch(facecolor="#e74c3c", edgecolor="black", label="Incorrect"),
+            ]
             legend = ax.legend(
                 handles=legend_items,
                 fontsize=9,
@@ -464,7 +476,7 @@ class PhishPondVisualizer:
                         zorder=3, color="white")                      # ← white
 
             fig.tight_layout()
-            self._save(fig, f"questions/latency/question_{qid}")
+            self._save(fig, f"questions/latency/{grp['question'].iloc[0].split("/")[-1]}")
 
 
     # ------------------------------------------------------------------

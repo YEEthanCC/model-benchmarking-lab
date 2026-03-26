@@ -8,7 +8,7 @@ from core.config import Settings
 
 settings = Settings()
 
-class PhishPondPreprocessor:
+class VishingPreprocessor:
     def __init__(
         self, 
         file_path
@@ -18,11 +18,11 @@ class PhishPondPreprocessor:
 
     def process(self):
         folder_path = Path(f"{self.file_path}")
-        df = pd.DataFrame(columns=['id', 'transcript', 'details', 'ground_truth'])
+        df = pd.DataFrame(columns=['id', 'file_name', 'transcript', 'ground_truth'])
         for file in list(folder_path.glob('*.mp3')):
             result = self.transcriber.transcribe(file)
             if "phish" in str(file):
-                df.loc[len(df)] = [f'p{len(df) + 1}', str(file), result.details, 'phishing']
+                df.loc[len(df)] = [f'p{len(df) + 1}', str(file), result.text, 'phishing']
             else:
-                df.loc[len(df)] = [f'r{len(df) + 1}', str(file), result.details, 'real']
+                df.loc[len(df)] = [f'r{len(df) + 1}', str(file), result.text, 'real']
         return df
