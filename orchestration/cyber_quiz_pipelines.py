@@ -25,6 +25,7 @@ from agents.prompts.cyber_quiz_prompts import (
 )
 from preprocessing.cyber_quiz_preprocessor import CyberQuizPreprocessor
 from visualization.data_lockdown_visualizer import DataLockdownVisualizer
+from visualization.cyber_quiz_visualizer import CyberQuizVisualizer
 
 RESULTS_DIR = Path("results")
 ANSWER_MAP = {"A": "option_A", "B": "option_B", "C": "option_C", "D": "option_D"}
@@ -37,7 +38,7 @@ def _is_populated(value) -> bool:
 
 
 def _extract_non_empty_options(row) -> list[str]:
-    option_keys = ["option_A", "option_B", "option_C", "option_D", "option_E", "option_F"]
+    option_keys = ["a", "b", "c", "d", "e", "f"]
     return [str(row[key]).strip() for key in option_keys if key in row and _is_populated(row[key])]
 
 
@@ -79,10 +80,8 @@ def _normalize_spaces(value: str) -> str:
 def _parse_classification_pairs(value: str) -> list[tuple[str, str]]:
     pairs: list[tuple[str, str]] = []
     for segment in [part.strip() for part in str(value).split(";") if part.strip()]:
-        if "→" in segment:
-            left, right = [piece.strip() for piece in segment.split("→", 1)]
-        elif "->" in segment:
-            left, right = [piece.strip() for piece in segment.split("->", 1)]
+        if ":" in segment:
+            left, right = [piece.strip() for piece in segment.split(":", 1)]
         else:
             return []
         if not left or not right:
@@ -92,7 +91,7 @@ def _parse_classification_pairs(value: str) -> list[tuple[str, str]]:
 
 
 def _normalize_answer_for_scoring(row, answer: str) -> str:
-    question_type = str(row.get("question_type", ""))
+    question_type = str(row.get("type", ""))
     answer = str(answer).strip()
 
     if question_type == "TrueFalse":
@@ -142,7 +141,7 @@ def _parse_ranked_answer(answer: str) -> list[str]:
 
 
 def _is_valid_answer_format(row, answer: str) -> bool:
-    question_type = row["question_type"]
+    question_type = row["type"]
     if question_type == "TrueFalse":
         return str(answer).strip().upper() in {"TRUE", "FALSE"}
 
@@ -167,17 +166,17 @@ def _is_valid_answer_format(row, answer: str) -> bool:
             parsed_items.append(left)
         return parsed_items == items
 
-    return str(answer).strip().lower() in {"a", "b", "c", "d"}
+    return str(answer).strip().lower() in {"a", "b", "c", "d", "e", "f"}
 
 
 def get_agent_response(row, agent: AzureAgent) -> AgentResponse:
-    if row["question_type"] == "TrueFalse":
+    if row["type"] == "TrueFalse":
         prompt = TRUE_FALSE_PROMPT.format(question=row["question"])
-    elif row["question_type"] == "Ranking":
+    elif row["type"] == "Ranking":
         steps = _extract_non_empty_options(row)
         options = "\n".join(f"{idx}. {step}" for idx, step in enumerate(steps, start=1))
         prompt = RANKING_PROMPT.format(question=row["question"], options=options)
-    elif row["question_type"] == "MultiSelectClassification":
+    elif row["type"] == "MultiSelectClassification":
         labels = _extract_allowed_labels(row)
         items = _extract_classification_items(row)
         items_block = "\n".join(f"- {item}" for item in items)
@@ -188,13 +187,29 @@ def get_agent_response(row, agent: AzureAgent) -> AgentResponse:
             items=items_block,
         )
     else:
-        options = f"""
-a: {row["option_A"]}
-b: {row["option_B"]}
-c: {row["option_C"]}
-d: {row["option_D"]}
-"""
-        prompt = MULTIPLECHOICE_PROMPT.format(question=row["question"], options=options)
+        options = ""
+        option_keys = ["a", "b", "c", "d", "e", "f"]
+        for key in option_keys:
+            if row[key]:
+                options+=f"{key}: {row[key]}"
+        if row["type"] == "ImageMultipleChoice":
+            prompt = [
+                {
+                    "type": "text",
+                    "text": MULTIPLECHOICE_PROMPT.format(question=row["question"], options=options),
+                },
+            ]
+            for image_data in row["image"]:
+                prompt.append(
+                    {
+                        "type": "image_url",
+                        "image_url": {
+                            "url": f"data:image/png;base64,{image_data}"  # image/png not image/jpeg
+                        }
+                    }
+                )
+        else:
+            prompt = MULTIPLECHOICE_PROMPT.format(question=row["question"], options=options)
 
     response = agent.run(prompt)
     if _is_valid_answer_format(row, response.answer):
@@ -238,7 +253,7 @@ class CyberQuizPipeline:
         """Run all models, persist results, and generate visualizations."""
         try:
             processor = CyberQuizPreprocessor(self.file_path)
-            df = processor.process()
+            df = processor.run()
         except Exception as e:
             print(f"Invalid data format: {e}")
             return
@@ -264,9 +279,9 @@ class CyberQuizPipeline:
         run_dir = self._save_results(results_df)
 
         # Generate visualizations
-        # self._generate_visualizations(results_df, run_dir)
+        self._generate_visualizations(results_df, run_dir)
 
-        # print(f"\nResults and charts saved to {run_dir}")
+        print(f"\nResults and charts saved to {run_dir}")
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -285,11 +300,8 @@ class CyberQuizPipeline:
             is_correct = _is_correct_answer(row, resp.answer)
             records.append(
                 {
-                    "qid": row.get("order"),
-                    "domain": row["domain"],
-                    "difficulty": row["difficulty"],
-                    "regulation": row.get("regulation"),
-                    "question_type": row["question_type"],
+                    "qid": row["qid"],
+                    "question_type": row["type"],
                     "question": row["question"],
                     "ground_truth": row["ground_truth"],
                     "normalized_ground_truth": normalized_ground_truth,
@@ -300,10 +312,10 @@ class CyberQuizPipeline:
                     "confidence": resp.confidence,
                     "reasoning": resp.reasoning,
                     "latency": resp.latency,
-                    "a": row["option_A"], 
-                    "b": row["option_B"],  
-                    "c": row["option_C"], 
-                    "d": row["option_D"], 
+                    "a": row["a"], 
+                    "b": row["b"],  
+                    "c": row["c"], 
+                    "d": row["d"], 
                 }
             )
         return pd.DataFrame(records)
@@ -320,11 +332,11 @@ class CyberQuizPipeline:
         print(f"  Detailed results → {detail_path}")
 
         # ---------- Per-model summary ----------
-        summary = self._compute_summary(results_df)
-        summary_path = run_dir / "summary.json"
-        with open(summary_path, "w") as f:
-            json.dump(summary, f, indent=2)
-        print(f"  Summary           → {summary_path}")
+        # summary = self._compute_summary(results_df)
+        # summary_path = run_dir / "summary.json"
+        # with open(summary_path, "w") as f:
+        #     json.dump(summary, f, indent=2)
+        # print(f"  Summary           → {summary_path}")
 
         return run_dir
 
@@ -368,6 +380,6 @@ class CyberQuizPipeline:
     @staticmethod
     def _generate_visualizations(results_df: pd.DataFrame, run_dir: Path):
         """Create all comparative charts and save into the run directory."""
-        viz = DataLockdownVisualizer(results_df, run_dir)
+        viz = CyberQuizVisualizer(results_df, run_dir)
         viz.generate_all()
 

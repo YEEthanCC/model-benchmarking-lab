@@ -20,7 +20,7 @@ Options:
 
 Response schema:
 {{
-	"answer": "a" | "b" | "c" | "d",  // must be one of the provided options
+	"answer": "a" | "b" | "c" | "d" | "e" | "f",  // must be one of the provided options
 	"reasoning": <your reasoning>,
 	"confidence_score": <float between 0 and 1, up to two decimal places>
 }}
@@ -55,6 +55,7 @@ Output rules for the "answer" field:
 - Every provided step must appear exactly once.
 - Use semicolons between items.
 - Do not add extra punctuation or commentary.
+- Do not add additional ";" at the end
 
 Response schema:
 {{
@@ -74,18 +75,19 @@ Allowed classes:
 {labels}
 
 Output rules for the "answer" field:
-- Return one single string in this exact pattern: "<ITEM_1> → <CLASS>; <ITEM_2> → <CLASS>; ..."
+- Return one single string in this exact pattern: "<ITEM_1>: <CLASS>; <ITEM_2>: <CLASS>; ..."
 - Use the exact item text order as listed below.
 - Use only the allowed classes.
 - Include every item exactly once.
 - Use semicolons between mappings.
+- Do not add semicolons at the end
 
 Items to classify (keep exact text and order):
 {items}
 
 Response schema:
 {{
-	"answer": "<ITEM_1> → <CLASS>; <ITEM_2> → <CLASS>; ...",
+	"answer": "<ITEM_1>: <CLASS>; <ITEM_2>: <CLASS>: ...",
 	"reasoning": <your reasoning>,
 	"confidence_score": <float between 0 and 1, up to two decimal places>
 }}

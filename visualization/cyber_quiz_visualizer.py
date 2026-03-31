@@ -91,7 +91,7 @@ class CyberQuizVisualizer:
                 counts = [len(option_models.get(o, [])) for o in options]
                 bar_colors = ["#2ecc71" if o == str(ground_truth) else "#e74c3c" for o in options]
                 x = np.array([0, 0.5]) 
-            elif str(question_type) == "MultipleChoice":
+            elif str(question_type) == "MultipleChoice" or str(question_type) == "ImageMultipleChoice":
                 legend_items = [
                     Patch(facecolor="#2ecc71", edgecolor="black", label="Correct"),
                     Patch(facecolor="#e74c3c", edgecolor="black", label="Incorrect"),
@@ -177,6 +177,7 @@ class CyberQuizVisualizer:
             fig.tight_layout()
             self._save(fig, f"questions/answers/question_{qid}")
 
+
     # ------------------------------------------------------------------
     # 11. Per-question latency comparison (one chart per question)
     # ------------------------------------------------------------------
@@ -199,7 +200,7 @@ class CyberQuizVisualizer:
         y_upper = max(1, max_models_per_question) + 1
 
         for qid, grp in self.df.groupby("qid"):
-            title = f"AI Answer Distribution By Resoponse Time"
+            title = f"AI Answer Distribution By Response Time"
             df = grp.copy()
             df['bin'] = pd.cut(
                 df['latency'],
@@ -208,9 +209,9 @@ class CyberQuizVisualizer:
                 include_lowest=True
             )
 
-            answers = df['normalized_answer'].unique()
+            answers = df['answer'].unique()
             pivot = (
-                df.groupby(['bin', 'normalized_answer'], observed=True)
+                df.groupby(['bin', 'answer'], observed=True)
                 .size()
                 .unstack(fill_value=0)
                 .reindex(global_bins, fill_value=0)
@@ -219,10 +220,18 @@ class CyberQuizVisualizer:
                 if a not in pivot.columns:
                     pivot[a] = 0
 
+            # models_by_bin = (
+            #     df.groupby('bin', observed=True)['model']
+            #     .apply(lambda s: ", ".join(str(m).split('-')[0].upper() for m in s.tolist()))
+            #     .reindex(global_bins, fill_value="")
+            # )
             models_by_bin = (
-                df.groupby('bin', observed=True)['model']
-                .apply(lambda s: ", ".join(str(m).split('-')[0].upper() for m in s.tolist()))
-                .reindex(global_bins, fill_value="")
+                df.groupby('bin', observed=True).apply(
+                    lambda group: "\n".join(
+                        f"{str(row['model']).split('-')[0].upper()} ({row['confidence']:.2f})"
+                        for _, row in group.iterrows()
+                    )
+                ).reindex(global_bins, fill_value="")
             )
 
             x = np.arange(len(custom_bin_labels))
@@ -269,6 +278,17 @@ class CyberQuizVisualizer:
             }
 
             # Update the legend labels using the mapping
+            mapped_labels = [value_to_label.get(answer, answer) for answer in answers]
+            # if df["ground_truth"].iloc[0] == 'phishing':
+            #     legend_items = [
+            #         Patch(facecolor="#2ecc71", edgecolor="black", label="Scam"),
+            #         Patch(facecolor="#e74c3c", edgecolor="black", label="Legitimate"),
+            #     ]
+            # else:
+            #     legend_items = [
+            #         Patch(facecolor="#2ecc71", edgecolor="black", label="Legitimate"),
+            #         Patch(facecolor="#e74c3c", edgecolor="black", label="Scam"),
+            #     ]
             legend_items = [
                 Patch(facecolor="#2ecc71", edgecolor="black", label="Correct"),
                 Patch(facecolor="#e74c3c", edgecolor="black", label="Incorrect"),
@@ -298,7 +318,6 @@ class CyberQuizVisualizer:
             self._save(fig, f"questions/latency/question_{qid}")
 
 
-
     # ------------------------------------------------------------------
     # 14. GPT-only per-question gauge (half-doughnut speedometer)
     # ------------------------------------------------------------------
@@ -314,7 +333,7 @@ class CyberQuizVisualizer:
 
         gpt_df = self.df[self.df["model"] == gpt_model]
 
-        for qid, grp in gpt_df.groupby("id"):
+        for qid, grp in gpt_df.groupby("qid"):
             row = grp.iloc[0]
             display_q = "GPT's Performance"
             ground_truth = row["ground_truth"]

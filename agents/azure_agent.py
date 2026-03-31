@@ -26,64 +26,76 @@ class AzureAgent:
         )
 
 
-    def run(self, message: str) -> AgentResponse:
+    def run(self, message: Any) -> AgentResponse:
+        """
+        Run the agent with a message or a list of messages.
+
+        Args:
+            message (str | List[str]): The input message(s) to send to the agent.
+
+        Returns:
+            AgentResponse: The agent's response.
+        """
         try:
             agent = self.agent
             thread = self.client.agents.threads.create()
+
+            # Handle single message or list of messages
+
+            # Send messages to the agent
             self.client.agents.messages.create(
                 thread_id=thread.id,
                 role="user",
                 content=message
             )
-            
+
             # Run agent
             run = self.client.agents.runs.create_and_process(
                 thread_id=thread.id,
                 agent_id=agent.id
             )
-            
+
             # Check run status
             if run.status == "failed":
                 error_msg = f"Agent run failed. Status: {run.status}"
                 if hasattr(run, 'last_error') and run.last_error:
                     error_msg += f", Error: {run.last_error}"
                 raise ValueError(error_msg)
-            
+
             # Get response - filter for assistant messages only
             messages = self.client.agents.messages.list(thread_id=thread.id)
             messages_list = list(messages)
             assistant_messages = [msg for msg in messages_list if msg.role == "assistant"]
-            
+
             if not assistant_messages:
                 error_msg = f"No assistant response found. Run status: {run.status}"
                 if hasattr(run, 'last_error') and run.last_error:
                     error_msg += f", Error: {run.last_error}"
                 raise ValueError(error_msg)
-            
+
             agent_response = assistant_messages[-1].content[0].text.value
-            print(agent_response)
             # Parse JSON response
             response_text = agent_response.strip()
             if "```json" in response_text:
                 response_text = response_text.split("```json")[1].split("```")[0].strip()
             elif "```" in response_text:
                 response_text = response_text.split("```")[1].split("```")[0].strip()
-            
+
             parsed = json.loads(response_text)
             answer = parsed.get("answer")
             reasoning = parsed.get("reasoning")
             confidence = parsed.get("confidence_score")
             latency = round((run.completed_at - run.created_at).total_seconds(), 2)
-            
+
             return AgentResponse(
                 answer=answer, 
                 reasoning=reasoning, 
                 confidence=confidence, 
                 latency=latency
             )
-            
+
         except Exception as e:
-            # print(f"Warning: Failed to parse agent's response: {e}")
+            print(f"Warning: Failed to parse agent's response: {e}")
             return AgentResponse(
                 answer="none", 
                 reasoning="none", 
